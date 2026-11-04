@@ -70,7 +70,7 @@ Choose one:
 1. Fork or copy this repository to your own GitHub account.
 2. No code changes are needed. The workflow publishes to `<your Docker Hub username>/renovate-gcp-runner`, taking the username from the `DOCKERHUB_USERNAME` variable you set below.
 3. On Docker Hub, create a public repository named `renovate-gcp-runner`.
-4. Create a Docker Hub access token: Account settings > Personal access tokens, **Read & Write**, scoped to that one repository. Copy it once.
+4. Create a Docker Hub access token: Account settings > Personal access tokens > **Generate new token**. Choose the **Repo Read & Write** permission (not Read, Write, Delete) and set an expiry (for example 90 days to 1 year). Copy it once. Note that a personal access token cannot be limited to a single repository, see [Secrets handling](#secrets-handling).
 5. In your GitHub repository go to Settings > Environments > **New environment** named `dockerhub`:
    - Deployment branches and tags: **Selected branches and tags**, add `main` only.
    - Add the environment **secret** `DOCKERHUB_TOKEN` (paste the token) and the environment **variable** `DOCKERHUB_USERNAME` (your Docker Hub username).
@@ -227,14 +227,14 @@ Every credential has exactly one home, and none appear in code, the image, logs 
 |---|---|---|---|
 | GitHub App private key | Google Secret Manager | Cloud Run Job, via a mounted read-only volume | image, env var, repo, logs |
 | GitHub installation token | memory of the running job only (1 hour lifetime) | Renovate | disk, logs, secrets |
-| Docker Hub access token | GitHub environment secret (`dockerhub`) | the publish job only | repo-level secrets, workflow files, logs |
+| Docker Hub access token (Repo Read & Write, with expiry) | GitHub environment secret (`dockerhub`) | the publish job only | repo-level secrets, workflow files, logs |
 | Docker Hub username, App ID, Installation ID | plain variables (not sensitive) | workflow and job | n/a |
 
 Rules that make this hold:
 
 - **Secret Manager**: the key is uploaded as a file, accessed only by the job service account through a resource-scoped Secret Accessor role. Enable Data Access audit logs for Secret Manager if you want a record of every read. Delete the local `.pem` after upload and never commit it (`.gitignore` and `.dockerignore` exclude `*.pem`).
 - **GitHub environment**: the Docker Hub token is only available to the `publish` job, only on the `main` branch, optionally after manual approval. Pull requests, forks and other branches cannot read it.
-- **Least privilege Docker Hub token**: scope the access token to the single repository, with Read & Write.
+- **Least privilege Docker Hub token**: Docker Hub personal access tokens cannot be scoped to a single repository. They apply to every repository the account can access, and the lowest level that can push is **Repo Read & Write**. To limit the blast radius: use that level with an expiry, keep the token only in the protected `dockerhub` environment, enable two-factor authentication, and ideally publish from a dedicated Docker Hub account that owns only this repository. Per-repository scoping exists only for organization access tokens, which need a paid Docker Team or Business plan.
 - **Workflow hardening**: default `contents: read` permissions, `persist-credentials: false` on checkout, all actions pinned to commit SHAs, and secrets are only passed through `with:` inputs of the official Docker actions, never interpolated into shell scripts. Use `pull_request`, not `pull_request_target`, so fork code never runs with secrets.
 - **GitHub repo settings**: under Settings > Actions > General set "Fork pull request workflows" to require approval, and keep workflow permissions at read-only by default. Enable secret scanning and push protection (free on public repos).
 - **No secrets in logs**: `generate-token.js` prints only the HTTP status and GitHub's message on failure. Do not enable shell tracing (`set -x`) or `LOG_LEVEL=trace` in production. GitHub masks registered secrets in Actions logs, but masking is a safety net, not a control.
