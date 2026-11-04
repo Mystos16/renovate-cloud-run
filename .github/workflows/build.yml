@@ -7,7 +7,7 @@ on:
       - Dockerfile
       - entrypoint.sh
       - generate-token.js
-      - .github/workflows/build.yml
+      - VERSION
   pull_request:
   workflow_dispatch:
 
@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Pull requests (including forks) only validate the build. No secrets, no push.
@@ -26,7 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Check release version
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/check-version.sh pr "$BASE_REF"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -42,10 +48,22 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: dockerhub
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Check release version
+        run: ./scripts/check-version.sh publish
+
+      - name: Read release info
+        id: version
+        run: |
+          echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          echo "base=$(awk 'toupper($1)=="FROM" {print $2; exit}' Dockerfile)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -61,12 +79,36 @@ jobs:
           platforms: linux/amd64
           push: true
           provenance: false
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.base.name=${{ steps.version.outputs.base }}
           tags: |
-            ${{ vars.DOCKERHUB_USERNAME }}/renovate-gcp-runner:${{ github.run_number }}
+            ${{ vars.DOCKERHUB_USERNAME }}/renovate-gcp-runner:${{ steps.version.outputs.version }}
             ${{ vars.DOCKERHUB_USERNAME }}/renovate-gcp-runner:latest
 
-      - name: Print image reference to pin in Cloud Run
+      - name: Create GitHub release
         env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BASE: ${{ steps.version.outputs.base }}
           IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/renovate-gcp-runner
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: echo "docker.io/${IMAGE}@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          gh release create "v${VERSION}" \
+            --target "${GITHUB_SHA}" \
+            --title "v${VERSION}" \
+            --notes "$(printf 'Image: `docker.io/%s:%s`\n\nDigest: `docker.io/%s@%s`\n\nBase image: `%s`\n' "$IMAGE" "$VERSION" "$IMAGE" "$DIGEST" "$BASE")"
+
+      - name: Print image reference
+        env:
+          IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/renovate-gcp-runner
+          VERSION: ${{ steps.version.outputs.version }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "Published **v${VERSION}**"
+            echo
+            echo "- Tag: \`docker.io/${IMAGE}:${VERSION}\`"
+            echo "- Digest: \`docker.io/${IMAGE}@${DIGEST}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

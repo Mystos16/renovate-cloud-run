@@ -26,6 +26,18 @@
       "labels": [
         "dependencies",
         "base-image"
+      ],
+      "bumpVersions": [
+        {
+          "name": "Release patch version",
+          "filePatterns": [
+            "VERSION"
+          ],
+          "matchStrings": [
+            "^(?<version>\\d+\\.\\d+\\.\\d+)\\s*$"
+          ],
+          "bumpType": "patch"
+        }
       ]
     },
     {
@@ -61,5 +73,6 @@
         "major-update"
       ]
     }
-  ]
+  ],
+  "rebaseWhen": "behind-base-branch"
 }

@@ -58,32 +58,17 @@ Follow the steps in order. Each step builds on the previous one. Everything can 
 
 - A Google Cloud project with billing enabled (required even for free-tier use). Select it in the console's project picker before you start.
 - A GitHub account that owns the repositories you want Renovate to manage.
-- A Docker Hub account (only if you build your own image, see step 1).
 - Pick one region for everything, for example `europe-west4`, `us-central1`, `us-east1` or `us-west1`. These are Cloud Run Tier 1 regions (check the Cloud Run pricing page for the current list).
 
-### 1. Get the container image
+### 1. Pick the container image
 
-Choose one:
+Nothing to build or fork. The image is published on Docker Hub as [`mystos16/renovate-gcp-runner`](https://hub.docker.com/r/mystos16/renovate-gcp-runner):
 
-**A. Build and publish your own (recommended, you control what runs)**
+1. Open the [tags page](https://hub.docker.com/r/mystos16/renovate-gcp-runner/tags) and note the newest full version tag (for example `0.1.3`).
+2. Your image reference for step 5 is `docker.io/mystos16/renovate-gcp-runner:<version>`, for example `docker.io/mystos16/renovate-gcp-runner:0.1.3`.
+3. Use the full version tag, not `latest` or a short tag, so the version only changes when you decide. See [Versioning](#versioning). For a stronger guarantee, use the digest shown on the tags page (`docker.io/mystos16/renovate-gcp-runner@sha256:...`).
 
-1. Fork or copy this repository to your own GitHub account.
-2. No code changes are needed. The workflow publishes to `<your Docker Hub username>/renovate-gcp-runner`, taking the username from the `DOCKERHUB_USERNAME` variable you set below.
-3. On Docker Hub, create a public repository named `renovate-gcp-runner`.
-4. Create a Docker Hub access token: Account settings > Personal access tokens > **Generate new token**. Choose the **Repo Read & Write** permission (not Read, Write, Delete) and set an expiry (for example 90 days to 1 year). Copy it once. Note that a personal access token cannot be limited to a single repository, see [Secrets handling](#secrets-handling).
-5. In your GitHub repository go to Settings > Environments > **New environment** named `dockerhub`:
-   - Deployment branches and tags: **Selected branches and tags**, add `main` only.
-   - Add the environment **secret** `DOCKERHUB_TOKEN` (paste the token) and the environment **variable** `DOCKERHUB_USERNAME` (your Docker Hub username).
-   - Optional: add yourself under Required reviewers to approve each publish.
-   - Do not create repository-level secrets for Docker Hub. Only this environment holds the token.
-6. Push to `main` (or run the workflow manually from the Actions tab). The `build` workflow builds `linux/amd64`, the architecture Cloud Run uses, and pushes it.
-7. Open the finished workflow run > **Summary**. Copy the line `docker.io/<user>/renovate-gcp-runner@sha256:...`. This immutable digest reference is what you give Cloud Run in step 5.
-
-Pull requests only validate the build. They never receive secrets and never push.
-
-**B. Use the prebuilt public image**
-
-Use `docker.io/mystos16/renovate-gcp-runner` with a digest from its [Docker Hub tags page](https://hub.docker.com/r/mystos16/renovate-gcp-runner/tags). You trust the publisher's builds, so prefer option A if you can.
+You are trusting the publisher's builds, and this image runs with write access to your repositories. If you prefer to control exactly what runs, [build and publish your own image](#building-your-own-image-optional) from this repository instead and use that reference.
 
 ### 2. Create the GitHub App
 
@@ -122,7 +107,7 @@ Grant only these resource-scoped roles. Do not give either account project-wide 
 
 1. Enable the **Cloud Run Admin API** (APIs & Services > Library).
 2. **Cloud Run > Jobs > Create job**.
-3. Container image URL: the `docker.io/<user>/renovate-gcp-runner@sha256:<digest>` reference from step 1.
+3. Container image URL: the reference from step 1, for example `docker.io/mystos16/renovate-gcp-runner:<version>` with the newest full version such as `0.1.3`. Pin a full version or digest rather than `:latest`, see [Versioning](#versioning).
 4. Job name `renovate`, region as chosen in the prerequisites.
 5. Number of tasks `1`. Parallelism: **Limit the number of concurrent tasks** = `1`. Renovate handles repositories one after another inside the single task.
 6. Expand **Container(s), Volumes, Connections, Security**:
@@ -175,6 +160,22 @@ Budgets only alert and do not stop spending, and billing data lags by hours.
 
 For a few repositories the job runs a few minutes per execution. At 1 vCPU and 2 GiB, a run every 8 hours stays well inside the Cloud Run free tier (240,000 vCPU-seconds and 450,000 GiB-seconds per month at the time of writing). Cloud Scheduler includes 3 free jobs per billing account, and Secret Manager includes 6 free secret versions. Pricing and free-tier limits change, so confirm on the Google Cloud pricing pages.
 
+## Building your own image (optional)
+
+Only needed if you do not want to trust the published image. Fork or copy this repository, then:
+
+1. Create a public Docker Hub repository named `renovate-gcp-runner`.
+2. Create a Docker Hub access token: Account settings > Personal access tokens > **Generate new token**. Choose **Repo Read & Write** (not Read, Write, Delete) and set an expiry (for example 90 days to 1 year). Copy it once. A personal access token cannot be limited to a single repository, see [Secrets handling](#secrets-handling).
+3. In your GitHub repository go to Settings > Environments > **New environment** named `dockerhub`:
+   - Deployment branches and tags: **Selected branches and tags**, add `main` only.
+   - Add the environment **secret** `DOCKERHUB_TOKEN` (paste the token) and the environment **variable** `DOCKERHUB_USERNAME` (your Docker Hub username).
+   - Optional: add yourself under Required reviewers to approve each publish.
+   - Do not create repository-level secrets for Docker Hub. Only this environment holds the token.
+4. Push to `main` (or run the workflow manually from the Actions tab). No code changes are needed: the workflow publishes to `<your username>/renovate-gcp-runner`, taking the username from `DOCKERHUB_USERNAME`. It builds `linux/amd64`, the architecture Cloud Run uses.
+5. Open the finished workflow run > **Summary** and copy the tag (for example `docker.io/<user>/renovate-gcp-runner:0.1.0`) or the digest as your image reference in step 5 of Setup.
+
+Pull requests only validate the build. They never receive secrets and never push.
+
 ## Local testing (optional)
 
 Requires Docker. Use a dry run so nothing is changed on GitHub:
@@ -193,7 +194,21 @@ On Apple Silicon add `--platform linux/amd64` to both the build and the run. Kee
 
 ## Versioning
 
-Each push to `main` that changes the image publishes it under the workflow run number (`:1`, `:2`, ...) and `:latest`. Pin the Cloud Run Job to the `@sha256:` digest shown in the run summary. A digest is immutable, so even if the Docker Hub account were compromised, the job keeps running the exact image you approved. To roll out a change, push, wait for the workflow, copy the new digest from its summary, then edit the Cloud Run Job (Edit > Container image URL) and save.
+Images use semantic versions (`MAJOR.MINOR.PATCH`, first release `0.1.0`) and the current release is stored in the [`VERSION`](VERSION) file. Every merge to `main` that changes the image publishes the version in that file to Docker Hub and creates a matching GitHub release. Base image updates from Renovate raise the patch number automatically. The maintainer raises the minor or major number by hand.
+
+Docker Hub tags:
+
+| Tag | Meaning |
+|---|---|
+| `0.1.3` | One exact release (recommended for pinning) |
+| `latest` | The newest release |
+| `@sha256:...` | One exact image, immutable (strongest pin) |
+
+**Pin a full version or digest in the Cloud Run Job and do not run `latest`.** This image runs with write access to your repositories, so you should decide exactly which code runs and when. A digest or full version only changes when you edit the job, whereas `latest` can silently change what runs on a redeploy.
+
+To upgrade, check the [tags page](https://hub.docker.com/r/mystos16/renovate-gcp-runner/tags) for a newer version, then edit the Cloud Run Job (Edit > Container image URL) and save. A new major version can include breaking changes, so read its release notes first.
+
+If you publish your own image, the same workflow versions it. Change the minor or major by editing the [`VERSION`](VERSION) file in a pull request and merging. Pull requests that change the image must also raise `VERSION`, and a CI check enforces it.
 
 ### Keeping this repository up to date
 
@@ -210,14 +225,14 @@ What Renovate will propose, on Mondays before 06:00:
 - **Base image:** a pull request bumping the `renovate/renovate` tag and digest in the `Dockerfile`.
 - **GitHub Actions:** one grouped pull request bumping the pinned action versions and commit SHAs.
 
-Merging a base image or action update to `main` changes the build inputs, so the `build` workflow publishes a new image automatically. Then update the Cloud Run Job to the new digest as described above. The pull request itself runs the validation build first, which catches a broken base image before it is published.
+Each Renovate pull request for the base image also raises the patch number in `VERSION` (for example `0.1.4` to `0.1.5`), so merging it to `main` publishes a new release automatically. GitHub Actions updates only change the workflow, not the image, so they do not publish a release. Renovate only ever raises the patch number, so a new minor or major release always stays a manual decision. After a release is published, update the Cloud Run Job to the new pinned reference, as described above. The pull request itself runs the validation build and the version check first, which catches a broken base image before it is published.
 
 Minor, patch and digest updates are automerged once the required checks pass. Major updates are never automerged and get a `major-update` label for manual review. Automerge uses GitHub's native auto-merge (`platformAutomerge`), which only merges after the required status checks succeed, so set it up first:
 
 1. Settings > General > Pull Requests: tick **Allow auto-merge**.
 2. Settings > Branches (or Rules > Rulesets): protect `main` and **require status checks to pass**, selecting the `validate` job of the `build` workflow. Without a required check, GitHub merges immediately without waiting for the build.
 
-Because the Cloud Run Job is pinned to an image digest, an automerged base image update publishes a new image but does not change what runs until you update the job's digest, so you stay in control of what executes with write access to your repositories.
+An automerged base image update publishes a new image, but the Cloud Run Job keeps running its pinned version until you update the reference, so you decide when new code starts running with write access to your repositories.
 
 ## Secrets handling
 
@@ -235,11 +250,11 @@ Rules that make this hold:
 - **Secret Manager**: the key is uploaded as a file, accessed only by the job service account through a resource-scoped Secret Accessor role. Enable Data Access audit logs for Secret Manager if you want a record of every read. Delete the local `.pem` after upload and never commit it (`.gitignore` and `.dockerignore` exclude `*.pem`).
 - **GitHub environment**: the Docker Hub token is only available to the `publish` job, only on the `main` branch, optionally after manual approval. Pull requests, forks and other branches cannot read it.
 - **Least privilege Docker Hub token**: Docker Hub personal access tokens cannot be scoped to a single repository. They apply to every repository the account can access, and the lowest level that can push is **Repo Read & Write**. To limit the blast radius: use that level with an expiry, keep the token only in the protected `dockerhub` environment, enable two-factor authentication, and ideally publish from a dedicated Docker Hub account that owns only this repository. Per-repository scoping exists only for organization access tokens, which need a paid Docker Team or Business plan.
-- **Workflow hardening**: default `contents: read` permissions, `persist-credentials: false` on checkout, all actions pinned to commit SHAs, and secrets are only passed through `with:` inputs of the official Docker actions, never interpolated into shell scripts. Use `pull_request`, not `pull_request_target`, so fork code never runs with secrets.
+- **Workflow hardening**: default `contents: read` permissions, `contents: write` granted only to the publish job (needed to create the release), `persist-credentials: false` on the checkout of the validate job, all actions pinned to commit SHAs, and secrets are only passed through `with:` inputs of the official Docker actions, never interpolated into shell scripts. Use `pull_request`, not `pull_request_target`, so fork code never runs with secrets.
 - **GitHub repo settings**: under Settings > Actions > General set "Fork pull request workflows" to require approval, and keep workflow permissions at read-only by default. Enable secret scanning and push protection (free on public repos).
 - **No secrets in logs**: `generate-token.js` prints only the HTTP status and GitHub's message on failure. Do not enable shell tracing (`set -x`) or `LOG_LEVEL=trace` in production. GitHub masks registered secrets in Actions logs, but masking is a safety net, not a control.
 - **Cloud Run Job configuration**: no secret appears in the job's environment variables. The only secret reference is the mounted volume. Anyone with job view access sees a reference to the secret, not its value.
-- **Image integrity**: the base image is pinned by digest, and the job should run the published image by digest.
+- **Image integrity**: the base image is pinned by digest, and the Cloud Run Job must be pinned to a digest or numbered tag, never `:latest` (see [Versioning](#versioning)).
 - **GitHub App**: install it only on the repositories Renovate manages. Contents write access is powerful, so protect the app owner account with two-factor authentication.
 - **Rotation**: rotate the GitHub App key and the Docker Hub token periodically, or immediately if exposed. For the app key, generate a new key in the app settings, add a new Secret Manager version, then delete the old key and disable the old version. The job mounts `latest`, so the next run picks it up.
 
@@ -263,6 +278,8 @@ If a secret is ever exposed, revoke it at the source first (delete the GitHub Ap
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Pinned Renovate base image plus the two scripts |
+| `VERSION` | Current release version; Renovate raises the patch, you raise minor and major |
+| `scripts/check-version.sh` | CI check that `VERSION` is valid, bumped, and newer than the last release |
 | `entrypoint.sh` | Generates the token (unless provided) and starts Renovate |
 | `generate-token.js` | Creates the GitHub App JWT and exchanges it for an installation token |
 | `.github/workflows/build.yml` | Builds and publishes the image |
