@@ -1,0 +1,65 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    ":semanticCommits",
+    ":maintainLockFilesWeekly"
+  ],
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "Renovate base image: keep the version tag and digest together, one PR per release",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "renovate/renovate"
+      ],
+      "groupName": null,
+      "commitMessageTopic": "Renovate base image",
+      "labels": [
+        "dependencies",
+        "base-image"
+      ]
+    },
+    {
+      "description": "Group all GitHub Actions bumps into a single PR",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions",
+      "labels": [
+        "dependencies",
+        "github-actions"
+      ]
+    },
+    {
+      "description": "Automerge minor and patch updates once required checks pass; majors always need review",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Never automerge major updates",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major-update"
+      ]
+    }
+  ]
+}
